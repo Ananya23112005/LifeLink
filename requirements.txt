@@ -1,0 +1,7 @@
+streamlit
+mysql-connector-python 
+requests
+pandas
+scikit-learn   # For ML functionality
+flask
+plotly
