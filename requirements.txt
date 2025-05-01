@@ -1,7 +1,9 @@
-streamlit
-mysql-connector-python 
-requests
-pandas
-scikit-learn   # For ML functionality
+streamlit==1.35.0
+matplotlib==3.8.4
+pandas==2.2.2
+numpy==1.26.4
+scikit-learn==1.4.2
+mysql-connector-python==8.4.0
 flask
+requests
 plotly
