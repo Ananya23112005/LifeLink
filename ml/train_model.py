@@ -22,7 +22,6 @@ def connect_db():
 def fetch_data():
     conn = connect_db()
     if not conn:
-        print("❌ Connection failed.")
         return pd.DataFrame()  # Return an empty DataFrame if connection fails
 
     cursor = conn.cursor(dictionary=True)
@@ -46,22 +45,13 @@ def fetch_data():
     WHERE 
         p.compatible IS NOT NULL
     """
-    
-    print("Executing query:", query)  # Check what query is being executed
 
     cursor.execute(query)
     rows = cursor.fetchall()
-    print(f"Fetched {len(rows)} records from the database.")  # Number of records fetched
-    
     cursor.close()
     conn.close()
 
-    if len(rows) == 0:
-        print("❌ No compatible matches found in the database.")  # No data fetched case
-        return pd.DataFrame()  # Return an empty DataFrame if no matches
-
     return pd.DataFrame(rows)
-
 
 # Function to train and save the model
 def train_and_save_model():
@@ -101,7 +91,12 @@ def train_and_save_model():
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
     # Train model
-    model = RandomForestClassifier(n_estimators=100, random_state=42)
+    model = RandomForestClassifier(
+    n_estimators=100,
+    class_weight='balanced',  # Treats minority class (matches) more seriously
+    max_depth=10,  # Optional: prevents overfitting
+    random_state=42
+    )
     model.fit(X_train, y_train)
 
     # Save the trained model and encoders
