@@ -2,7 +2,7 @@ import pickle
 import mysql.connector
 import pandas as pd
 
-# Load the model and encoders (without urgency_encoder)
+# Load the model and encoders
 with open("ml/model.pkl", "rb") as f:
     data = pickle.load(f)
     model = data['model']
@@ -48,9 +48,6 @@ def predict_match(recipient):
         recip_organ = organ_encoder.transform([recipient['organ_type']])[0]
         recip_age = recipient['age']
         urgency = recipient['urgency']
-        # Make sure to encode the 'urgency' value properly using the same encoder
-        #urgency = urgency_encoder.transform([recipient['urgency']])[0]
-
 
         # Connect and fetch possible donors for the same organ
         conn = connect_db()
@@ -65,30 +62,20 @@ def predict_match(recipient):
 
         if not donor_rows:
             return {"match": False, "message": "No donors available for this organ type."}
-        #print(f"Checking blood compatibility: {donor['blood_type']} with {recipient['blood_type']}")
 
-        # Check each donor with the model
-        best_match = None
-        best_confidence = 0
+        compatible_matches = []
 
         for donor in donor_rows:
-            print(f"Checking blood compatibility: {donor['blood_type']} with {recipient['blood_type']}")
-            # Skip if donor blood type not in encoder
             if donor['blood_type'] not in blood_encoder.classes_:
-                #print(f"Skipping donor {donor['donor_id']} due to invalid blood type.")
                 continue
 
-            # 🛑 Blood group compatibility check
             if not is_blood_compatible(donor['blood_type'], recipient['blood_type']):
-                
                 continue
 
             donor_blood = blood_encoder.transform([donor['blood_type']])[0]
             donor_organ = organ_encoder.transform([donor['organ_type']])[0]
             donor_age = donor['age']
 
-
-            # Create a DataFrame for prediction with proper feature names
             features_df = pd.DataFrame([{
                 'donor_blood_encoded': donor_blood,
                 'recip_blood_encoded': recip_blood,
@@ -96,41 +83,44 @@ def predict_match(recipient):
                 'recip_organ_encoded': recip_organ,
                 'donor_age': donor_age,
                 'recip_age': recip_age,
-                'urgency_level':urgency
-                
-                
+                'urgency_level': urgency
             }])
-            print("Features DataFrame for prediction:")
-            print(features_df)
+            print("Feature vector:\n",(features_df))
+
+            #prediction = model.predict(features_df)[0]
+            #confidence = model.predict_proba(features_df)[0][1]
+            proba = model.predict_proba(features_df)[0][1]
+            prediction = 1 if proba >= 0.3 else 0
+
+            print(f"Donor ID: {donor['donor_id']}, Prediction: {prediction}")
 
 
-            # Make prediction and calculate confidence
-            prediction = model.predict(features_df)[0]
-            confidence = model.predict_proba(features_df)[0][1]
-            print(f"Prediction: {prediction}, Confidence: {confidence}")
+            if  prediction==1 :
+                compatible_matches.append({
+                    "Donor ID": donor['donor_id'],
+                    "Name": donor['name'],
+                    "Blood Type": donor['blood_type'],
+                    "Organ Type": donor['organ_type'],
+                    "Age": donor['age'],
+                    #"Confidence (%)": round(confidence * 100, 2),
+                    "Contact Info": donor['contact_info']
+                })
 
+        if compatible_matches:
+            # Create a DataFrame and display as table
+            df = pd.DataFrame(compatible_matches)
+            print("\n✅ Compatible Matches Found:\n")
+            print(df.to_string(index=False))
+            print("Total donors checked:", len(donor_rows))
+            print("Valid compatible matches:", len(compatible_matches))
 
-            if  confidence > best_confidence:
-                best_confidence = confidence
-                best_match = donor
-
-        if best_match:
-            # Include contact_info in the final response
             return {
                 "match": True,
-                "message": f"🎉 Found a match with donor ID: {best_match['donor_id']}!",
-                "confidence": round(best_confidence * 100, 2),
-                "donor": {
-                    "id": best_match['donor_id'],
-                    "name": best_match['name'],
-                    "blood_type": best_match['blood_type'],
-                    "organ_type": best_match['organ_type'],
-                    "age": best_match['age'],
-                    "contact_info": best_match['contact_info']  # Include contact_info
-                }
+                "message": f"Found {len(compatible_matches)} compatible donor(s)!",
+                "matches": compatible_matches
             }
         else:
             return {"match": False, "message": "No compatible match found."}
 
     except Exception as e:
-        return {"error": str(e)}
+        return {"match": False, "message": f"Error occurred: {str(e)}", "matches": []}
