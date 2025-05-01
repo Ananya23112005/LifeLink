@@ -7,3 +7,4 @@ mysql-connector-python==8.4.0
 flask
 requests
 plotly
+seaborn
