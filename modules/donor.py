@@ -1,8 +1,13 @@
 import pandas as pd
 import streamlit as st
 import mysql.connector
+from mysql.connector import Error
 import matplotlib.pyplot as plt
 import seaborn as sns
+import re
+
+# List of blood groups
+blood_groups = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"]
 
 # Function to connect to the database
 def connect_db():
@@ -40,11 +45,10 @@ def apply_styles():
     """, unsafe_allow_html=True)
 
 # Function to visualize donor data
-# Function to visualize donor data
 def plot_donor_data(df, column):
     # Always start by creating a fresh figure
     plt.figure(figsize=(10, 6))
-    
+   
     # Check if the column exists
     if column == 'Blood Group':
         if 'blood_type' in df.columns:
@@ -67,13 +71,13 @@ def plot_donor_data(df, column):
             ax.pie(organ_counts, labels=organ_counts.index, autopct='%1.1f%%', startangle=90, colors=sns.color_palette("Set2", len(organ_counts)))
             ax.set_title('Distribution of Donors by Organ Type')
             ax.axis('equal')  # Keep it circular
-            
+           
             # Display the pie chart using Streamlit
             st.pyplot(fig)
             return  # Important: so that below st.pyplot(plt) doesn't run again
         else:
             st.error("Organ Type column is missing.")        
-    
+   
     # For Blood Group and Age charts
     st.pyplot(plt)
 
@@ -83,7 +87,7 @@ def register_donor():
         """
         <style>
         [data-testid="stAppViewContainer"] {
-            background-color:  #013220 
+            background-color:  #013220
 
 ;
         }
@@ -107,28 +111,34 @@ def register_donor():
 
     # Display options for donor registration (column 1) and content below
     st.subheader("Register New Donor")
-    
+   
     # Form for Donor Registration
     name = st.text_input("Name")
     age = st.number_input("Age", min_value=0)
-    blood_type = st.text_input("Blood Type")
-    organ_type = st.text_input("Organ Type")
+    blood_type = st.selectbox("Blood Group", ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"])
+    organ_type = st.selectbox("Organ Type", ["Kidney", "Heart", "Liver","Lungs","Pancreas"])
     contact_info = st.text_input("Contact Info")
 
     if st.button("Register Donor"):
+    # Check if all fields are filled
         if not name or not blood_type or not organ_type or not contact_info:
             st.error("All fields must be filled.")
         else:
-            conn = connect_db()
-            cursor = conn.cursor()
-            cursor.execute(""" 
-                INSERT INTO donors (name, age, blood_type, organ_type, contact_info)
-                VALUES (%s, %s, %s, %s, %s)
-            """, (name, age, blood_type, organ_type, contact_info))
-            conn.commit()
-            st.success("Donor registered successfully!")
-            cursor.close()
-            conn.close()
+            # Validate contact_info
+            is_phone = re.fullmatch(r"\d{10}", contact_info)
+            is_email = re.fullmatch(r"[^@]+@[^@]+\.[^@]+", contact_info)
+
+            if not (is_phone or is_email):
+                st.error("Contact Info must be a 10-digit phone number or a valid email address.")
+            else:
+                # Proceed with database insert
+                conn = connect_db()
+                cursor = conn.cursor()
+                cursor.execute("""INSERT INTO donors (name, age, blood_type, organ_type, contact_info) VALUES (%s, %s, %s, %s, %s)""", (name, age, blood_type, organ_type, contact_info))
+                conn.commit()
+                st.success("Donor registered successfully!")
+                cursor.close()
+                conn.close()
 
     # Donor Data Visualization (optional)
     st.subheader("Donor Data Visualization")
@@ -155,7 +165,7 @@ def view_donors():
         """
         <style>
         [data-testid="stAppViewContainer"] {
-            background-color: 	#013220 ;
+            background-color:   #013220 ;
         }
         </style>
         """,
@@ -193,7 +203,7 @@ def search_donor():
         """
         <style>
         [data-testid="stAppViewContainer"] {
-            background-color: 	#013220 ;
+            background-color:   #013220 ;
         }
         </style>
         """,
@@ -242,36 +252,80 @@ def update_donor():
         """
         <style>
         [data-testid="stAppViewContainer"] {
-            background-color: 	#013220 ;
+            background-color:   #013220 ;
         }
         </style>
         """,
         unsafe_allow_html=True
     )
     st.subheader("Update Donor")
-    donor_id = st.text_input("Enter Donor ID to Update:")
+   
+    try:
+        conn = connect_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT donor_id, name FROM donors")
+        donors = cursor.fetchall()
+       
+        if not donors:
+            st.warning("No donors available to update.")
+            return
+       
+        options = [f"{d[0]} - {d[1]}" for d in donors]
+        selected = st.selectbox("Choose Donor", options)
+        selected_id = int(selected.split(" - ")[0])
+       
+        cursor.execute("SELECT * FROM donors WHERE donor_id = %s", (selected_id,))
+        data = cursor.fetchone()
+       
+        if data:
+            name = st.text_input("Name", value=data[1])
+            age = st.number_input("Age", min_value=1, value=data[2])
+            blood_type = st.selectbox("Blood Type", blood_groups, index=blood_groups.index(data[3]))
+            organ_type = st.selectbox("Organ Needed", ["Kidney", "Heart", "Liver","Lungs","Pancreas"])
+            contact_info = st.text_input("Contact Info", value=data[5])
 
-    if donor_id:
-        donor_data = get_donor_data_by_id(donor_id)
-
-        if donor_data:
-            new_name = st.text_input("Enter New Name:", value=donor_data["name"])
-            new_age = st.number_input("Enter New Age:", value=donor_data["age"], min_value=18, max_value=120)
-            new_blood_type = st.text_input("Enter New Blood Type:", value=donor_data["blood_type"])
-            new_organ_type = st.text_input("Enter New Organ Type:", value=donor_data["organ_type"])
-            new_contact_info = st.text_input("Enter New Contact Info:", value=donor_data["contact_info"])
 
             if st.button("Update Donor"):
-                success = update_donor_data(donor_id, new_name, new_age, new_blood_type, new_organ_type, new_contact_info)
-
-                if success:
-                    st.success("Donor information updated successfully!")
+                # Basic field presence check
+                if not name or not blood_type or not organ_type or not contact_info:
+                    st.error("All fields must be filled.")
                 else:
-                    st.error("Failed to update donor information. Please try again.")
+                    # Contact info validation
+                    is_phone = re.fullmatch(r"\d{10}", contact_info)
+                    is_email = re.fullmatch(r"[^@]+@[^@]+\.[^@]+", contact_info)
+
+                    if not (is_phone or is_email):
+                        st.error("Contact Info must be a valid 10-digit phone number or a valid email address.")
+                    else:
+                        # Validate organ type
+                        allowed_organs = ["Kidney", "Heart", "Liver", "Lungs", "Pancreas"]
+                        if organ_type.capitalize() not in allowed_organs:
+                            st.error(f"Organ Type must be one of: {', '.join(allowed_organs)}")
+                        else:
+                            success = update_donor_data(
+                            selected_id,
+                            name,
+                            age,
+                            blood_type.upper(),
+                            organ_type.capitalize(),
+                            contact_info
+                            )
+
+                        if success:
+                            st.success("Donor information updated successfully!")
+                        else:
+                            st.error("Failed to update donor information. Please try again.")
         else:
-            st.error("Donor ID not found. Please enter a valid donor ID.")
-    else:
-        st.warning("Please enter a donor ID to proceed.")
+            st.error("Selected donor not found.")
+
+    except Error as e:
+        st.error("Error while updating.")
+        st.exception(e)
+    finally:
+        if conn.is_connected():
+            cursor.close()
+            conn.close()
+   
     st.subheader("Donor Data Visualization")
     plot_choice = st.radio("Visualize Donor Data By", ['Age', 'Blood Group', 'Organ Type'])
 
@@ -294,7 +348,7 @@ def get_donor_data_by_id(donor_id):
         """
         <style>
         [data-testid="stAppViewContainer"] {
-            background-color: 	#013220 ;
+            background-color:   #013220 ;
         }
         </style>
         """,
@@ -322,7 +376,7 @@ def get_donor_data_by_id(donor_id):
 def update_donor_data(donor_id, name, age, blood_type, organ_type, contact_info):
     conn = connect_db()
     cursor = conn.cursor()
-    cursor.execute(""" 
+    cursor.execute("""
         UPDATE donors
         SET name = %s, age = %s, blood_type = %s, organ_type = %s, contact_info = %s
         WHERE donor_id = %s
@@ -342,7 +396,7 @@ def delete_donor():
         """
         <style>
         [data-testid="stAppViewContainer"] {
-            background-color: 	#013220 ;
+            background-color:   #013220 ;
         }
         </style>
         """,
@@ -390,7 +444,7 @@ def main():
 
     # Layout with image next to buttons
     col1, col2 = st.columns([3, 1])
-    
+   
     with col1:
         action = st.selectbox(
             "Choose an action",
@@ -400,7 +454,7 @@ def main():
     with col2:
         image_url = "donor.jpg"  # Replace with your image URL
         st.image(image_url, use_column_width=True)
-    
+   
     # Perform the action based on user choice
     if action == "Register Donor":
         register_donor()
