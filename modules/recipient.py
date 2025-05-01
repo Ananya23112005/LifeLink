@@ -2,6 +2,7 @@ import streamlit as st
 import mysql.connector
 from mysql.connector import Error
 import pandas as pd
+import re
 
 # List of blood groups
 blood_groups = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"]
@@ -50,25 +51,32 @@ def register_recipient():
      
 
 
-    
-    
+   
+   
 
-    if st.button("Register"):
-        try:
-            conn = get_connection()
-            cursor = conn.cursor()
-            cursor.execute(
-                "INSERT INTO patients (name, age, blood_type, organ_needed, contact_info, urgency) VALUES (%s, %s, %s, %s, %s, %s )",
-                (name, age, blood_type, organ_needed, contact_info, urgency)
-            )
-            conn.commit()
-            st.success(f"{name} registered successfully!")
-        except Error as e:
-            st.error(f"Database Error: {e}")
-        finally:
-            if conn.is_connected():
-                cursor.close()
-                conn.close()
+    if st.button("Register Recipient"):
+        if not name or not blood_type or not organ_needed or not contact_info or not urgency:
+            st.error("All fields must be filled.")
+        else:
+            # Validate contact_info
+            is_phone = re.fullmatch(r"\d{10}", contact_info)
+            is_email = re.fullmatch(r"[^@]+@[^@]+\.[^@]+", contact_info)
+
+            if not (is_phone or is_email):
+                st.error("Contact Info must be a valid 10-digit phone number or a valid email address.")
+            else:
+                try:
+                    conn = get_connection()
+                    cursor = conn.cursor()
+                    cursor.execute("INSERT INTO patients (name, age, blood_type, organ_needed, contact_info, urgency) VALUES (%s, %s, %s, %s, %s, %s)",(name, age, blood_type, organ_needed, contact_info, urgency))
+                    conn.commit()
+                    st.success(f"{name} registered successfully!")
+                except Error as e:
+                    st.error(f"Database Error: {e}")
+                finally:
+                    if conn.is_connected():
+                        cursor.close()
+                        conn.close()
 
     # ===== After form: Show Organ Demand Chart =====
     st.subheader("Current Organ Demand Overview")
@@ -118,7 +126,7 @@ def view_recipients():
             text-align: left;
             border: 1px solid #003366;
         }
-        
+       
         .table-container th {
             background-color: #003366;
             color: white;
@@ -128,7 +136,7 @@ def view_recipients():
         unsafe_allow_html=True
     )
     st.subheader("All Registered Recipients")
-    
+   
     try:
         conn = get_connection()
         cursor = conn.cursor()
@@ -144,16 +152,16 @@ def view_recipients():
             st.markdown('</div>', unsafe_allow_html=True)
         else:
             st.info("No recipients found.")
-        
+       
         cursor.close()
         conn.close()
-    
+   
     except Error as e:
         st.error(f"Database Error: {e}")
-    
+   
     # ===== After form: Show Organ Demand Chart =====
     st.subheader("Current Organ Demand Overview")
-    
+   
     try:
         conn = get_connection()
         cursor = conn.cursor()
@@ -288,25 +296,39 @@ def update_recipient():
             name = st.text_input("Name", value=data[1])
             age = st.number_input("Age", min_value=1, value=data[2])
             blood_type = st.selectbox("Blood Type", blood_groups, index=blood_groups.index(data[3]))
-            organ_needed = st.text_input("Organ Needed", value=data[4])
+            organ_needed = st.selectbox("Organ Needed", ["Kidney", "Heart", "Liver","Lungs","Pancreas"])
             contact_info = st.text_input("Contact Info", value=data[5])
             urgency = st.slider("Urgency", min_value=1, max_value=10, value=data[6], step=1, help="Set urgency level from 1 to 10")
-            
+           
             # Handle potential invalid data[7] value for compatibility
             #compatible_value = data[7]
             #if compatible_value not in ["Yes", "No"]:
                 #compatible_value = "No"  # Default value if data[7] is invalid or not "Yes" / "No"
-            
+           
             #compatible = st.selectbox("Compatible", ["Yes", "No"], index=["Yes", "No"].index(compatible_value))
 
             if st.button("Update"):
-                update_query = """
-                    UPDATE patients SET name=%s, age=%s, blood_type=%s, organ_needed=%s, contact_info=%s, urgency=%s
-                    WHERE patient_id=%s
-                """
-                cursor.execute(update_query, (name, age, blood_type, organ_needed, contact_info, urgency,  selected_id))
-                conn.commit()
-                st.success("Recipient updated successfully.")
+                # Basic non-empty validation
+                if not name or not blood_type or not organ_needed or not contact_info:
+                    st.error("All fields must be filled.")
+                else:
+                    # Contact Info Validation
+                    is_phone = re.fullmatch(r"\d{10}", contact_info)
+                    is_email = re.fullmatch(r"[^@]+@[^@]+\.[^@]+", contact_info)
+
+                    if not (is_phone or is_email):
+                        st.error("Contact Info must be a valid 10-digit phone number or a valid email address.")
+                    else:
+                        # Optionally: restrict organ types
+                        allowed_organs = ["Kidney", "Heart", "Liver", "Lungs", "Pancreas"]
+                        if organ_needed.capitalize() not in allowed_organs:
+                            st.error(f"Organ Needed must be one of: {', '.join(allowed_organs)}")
+                        else:
+                            update_query = """UPDATE patients SET name=%s, age=%s, blood_type=%s, organ_needed=%s, contact_info=%s, urgency=%s WHERE patient_id=%s"""
+                            cursor.execute(update_query, (name, age, blood_type, organ_needed.capitalize(), contact_info, urgency, selected_id))
+                            conn.commit()
+                            st.success("Recipient updated successfully.")
+
         else:
             st.error("Selected recipient not found.")
 
@@ -339,6 +361,34 @@ def update_recipient():
             cursor.close()
             conn.close()
 
+def get_patient_data_by_id(patient_id):
+    st.markdown(
+        """
+        <style>
+        [data-testid="stAppViewContainer"] {
+            background-color:   #013220 ;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM patients WHERE patient_id = %s", (patient_id,))
+    patient_data = cursor.fetchone()
+    conn.close()
+
+    if patient_data:
+        return {
+            "donor_id": patient_data[0],
+            "name": patient_data[1],
+            "age": patient_data[2],
+            "blood_type": patient_data[3],
+            "organ_type": patient_data[4],
+            "contact_info": patient_data[5]
+        }
+    else:
+        return None
 
 
 # Delete a recipient
